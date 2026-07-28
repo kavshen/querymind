@@ -23,6 +23,7 @@ from google import genai
 
 from models import NLToSQLRequest, NLToSQLResponse
 from prompt_builder import build_prompt
+from cache import get_cached_result, store_result
 
 # WHY explicit path instead of a bare load_dotenv():
 # uvicorn's working directory depends on which folder you ran it from
@@ -74,7 +75,21 @@ def _clean_sql_response(raw_text: str) -> str:
 def generate_sql(request: NLToSQLRequest) -> NLToSQLResponse:
     """
     Main entry point: orchestrates the full flow from question -> SQL.
+
+    Now checks the cache FIRST, before doing any of the more expensive work
+    (calling the Schema Service, calling Gemini). This is a deliberate
+    ordering choice: a cache hit should be as fast as possible, which means
+    skipping every other step entirely when we can.
     """
+    # Step 0: check cache first
+    cached = get_cached_result(request.question, request.connection_string)
+    if cached is not None:
+        # The stored dict already has a "cached" key (it was False when we
+        # saved it) -- remove it before overriding with cached=True below,
+        # otherwise Python sees two values for the same keyword argument.
+        cached.pop("cached", None)
+        return NLToSQLResponse(**cached, cached=True)
+
     # Step 1: get the real schema for this database
     schema = _fetch_schema(request.connection_string)
 
@@ -95,9 +110,14 @@ def generate_sql(request: NLToSQLRequest) -> NLToSQLResponse:
     # Step 4: clean up the response into plain SQL
     generated_sql = _clean_sql_response(response.text)
 
-    return NLToSQLResponse(
+    result = NLToSQLResponse(
         question=request.question,
         generated_sql=generated_sql,
         database_type=schema["database_type"],
-        cached=False,  # Redis caching gets wired in next -- always False for now
+        cached=False,
     )
+
+    # Step 5: store this result so the next identical question is instant
+    store_result(request.question, request.connection_string, result.model_dump())
+
+    return result
