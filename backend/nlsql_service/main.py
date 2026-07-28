@@ -12,6 +12,7 @@ import requests
 
 from models import NLToSQLRequest, NLToSQLResponse
 from nlsql_generator import generate_sql
+from sql_validator import SQLValidationError
 
 app = FastAPI(
     title="QueryMind - NL-to-SQL Service",
@@ -46,5 +47,11 @@ def generate_sql_endpoint(request: NLToSQLRequest):
             status_code=502,
             detail=f"Could not reach Schema Service or it returned an error: {str(e)}"
         )
+    except SQLValidationError as e:
+        # 422 = "Unprocessable Entity" -- the request was well-formed, but
+        # the SQL we generated from it failed validation. Distinct from a
+        # 400 (bad request) since the CLIENT's request was fine; it's our
+        # generated output that didn't pass the check.
+        raise HTTPException(status_code=422, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))

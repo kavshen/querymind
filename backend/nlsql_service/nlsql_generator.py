@@ -24,6 +24,7 @@ from google import genai
 from models import NLToSQLRequest, NLToSQLResponse
 from prompt_builder import build_prompt
 from cache import get_cached_result, store_result
+from sql_validator import validate_sql, SQLValidationError
 
 # WHY explicit path instead of a bare load_dotenv():
 # uvicorn's working directory depends on which folder you ran it from
@@ -109,6 +110,13 @@ def generate_sql(request: NLToSQLRequest) -> NLToSQLResponse:
 
     # Step 4: clean up the response into plain SQL
     generated_sql = _clean_sql_response(response.text)
+
+    # Step 4.5: validate before we ever cache or return this SQL.
+    # WHY HERE (not in main.py): validation is part of what it means to
+    # "successfully generate SQL" -- unvalidated SQL isn't a real result,
+    # so this check belongs in the generation logic itself, not bolted on
+    # as an afterthought at the API layer.
+    validate_sql(generated_sql)
 
     result = NLToSQLResponse(
         question=request.question,

@@ -9,3 +9,4 @@ cryptography==43.0.1
 google-genai==0.3.0
 requests==2.32.3
 redis==5.0.8
+sqlparse==0.5.1
